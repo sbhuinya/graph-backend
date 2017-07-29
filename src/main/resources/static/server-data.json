@@ -1,0 +1,21 @@
+{
+  "nodes":
+  [
+    {
+      "id":"indicator--1234",
+      "label":"Ind Me"
+    },
+    {
+      "id":"ap-6789",
+      "label":"AP Label"
+    }
+  ],
+  "edges":
+  [
+    {
+      "id":"relationship--5643",
+      "source":"indicator--1234",
+      "target":"ap-6789"
+    }
+  ]
+}

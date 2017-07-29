@@ -1,0 +1,31 @@
+<html>
+<head>
+    <style internalType="text/css">
+        #container {
+            max-width: 800px;
+            height: 800px;
+            margin: auto;
+        }
+    </style>
+</head>
+<body>
+<div id="container"></div>
+<script src="sigma.require.js"></script>
+<script src="sigma.parsers.json.min.js"></script>
+<!--<script src="context.js"></script>-->
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.0/jquery.min.js"></script>
+<script>
+
+    sigma.parsers.json("data-few.json", {
+        container: 'container',
+        settings: {
+            defaultNodeColor: '#ec5148'
+        }
+    })
+
+
+
+
+</script>
+</body>
+</html>
