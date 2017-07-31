@@ -32,10 +32,6 @@ public class ContextService {
         indicatorTypeMapping.put("domain", "domain-name:value");
     }
 
-    public ESIndex getEsIndex() {
-        return esIndex;
-    }
-
     public void setEsIndex(ESIndex esIndex) {
         this.esIndex = esIndex;
     }
@@ -89,7 +85,7 @@ public class ContextService {
             source.remove("object_refs");
             reportNode.setData(source);
             data.addNode(reportNode);
-            fetchRelationsForEachNode(nodesFetched, nodesFetched, relationshipsFetched, data);
+            fetchRelationsForEachNode(data.nodesAlreadyFetched(), data);
         }
         return data;
     }
@@ -98,8 +94,8 @@ public class ContextService {
 
         ContextData result = new ContextData();
         SearchHits hits = esIndex.query(searchString);
-        Set<String> nodesFetched = new HashSet<>();
-        Set<String> relationshipsFetched = new HashSet<>();
+//        Set<String> nodesFetched = new HashSet<>();
+//        Set<String> relationshipsFetched = new HashSet<>();
         Node rootNode = new Node();
         rootNode.setId(searchString);
         rootNode.setLabel(searchString);
@@ -107,20 +103,31 @@ public class ContextService {
         HashMap<String, Object> rootData = new HashMap<>();
         rootData.put("search_string", searchString);
         rootNode.setData(rootData);
+
+        createNodes(hits, result, rootNode);
+        fetchRelationsForEachNode(result.nodesAlreadyFetched(), result);
+        rootData.put("Total Nodes", result.getNodes().size());
+        rootData.put("Total Edges", result.getEdges().size());
         result.addNode(rootNode);
-        createNodes(hits, nodesFetched, result, rootNode);
-        fetchRelationsForEachNode(nodesFetched, nodesFetched, relationshipsFetched, result);
         return result;
     }
 
-    private void createNodes(SearchHits hits, Set<String> nodesFetched, ContextData data, Node rootNode) {
+    private void createNodes(SearchHits hits, ContextData data, Node rootNode) {
         Set<String> refNodes = new HashSet<>();
 
         for(SearchHit hit: hits) {
             Map<String, Object> sourceFields = hit.getSource();
             String documentType = (String) hit.getSourceAsMap().get("type");
+            if(documentType.equals("marking-definition")) {
+                documentType = (String) hit.getSourceAsMap().get("definition_type");
+                String tlp = (String)((HashMap)hit.getSource().get("definition")).get("tlp");
+                if(tlp != null) {
+                    documentType = documentType.concat("-").concat(tlp);
+                }
+
+            }
             String id = (String) hit.getSourceAsMap().get("id");
-            if(!nodesFetched.contains(id) && !"marking-definition".equals(documentType)) {
+            if(!data.isNodePresent(id)) {
                 //TODO: Change it to take label from label field if present
                 String label =  hit.getSourceAsMap().get("label") != null?  (String) hit.getSourceAsMap().get("label"): id;
                 Node node = new Node();
@@ -128,20 +135,45 @@ public class ContextService {
                 node.setData(sourceFields);
                 node.setType(documentType);
                 node.setLabel(label);
-                nodesFetched.add(id);
+//                nodesFetched.add(id);
                 data.addNode(node);
                 if(rootNode != null) {
                     data.addEdge(createRootRelationship(rootNode, node));
                 }
                 for(String key: sourceFields.keySet()) {
                     if(key.endsWith("ref")) {
-                        refNodes.add((String)sourceFields.get(key));
+                        String keyId = (String)sourceFields.get(key);
+                        if(!data.isNodePresent(keyId)) {
+                            //Create a relationship edge first
+                            Edge edge = new Edge();
+                            edge.setId("ref--".concat(UUID.randomUUID().toString()));
+                            edge.setSource(id);
+                            edge.setTarget(keyId);
+                            edge.setInternalType("Reference");
+                            data.addEdge(edge);
+                            refNodes.add((String)sourceFields.get(key));
+                        }
+
                     } else if(key.endsWith("refs")) {
-                        refNodes.addAll((List)sourceFields.get(key));
+                        List<String> references = (List)sourceFields.get(key);
+                        for(String ref: references) {
+                            if(!data.isNodePresent(ref)) {
+                                Edge edge = new Edge();
+                                edge.setId("ref--".concat(UUID.randomUUID().toString()));
+                                edge.setSource(id);
+                                edge.setTarget(ref);
+                                edge.setInternalType("Reference");
+                                data.addEdge(edge);
+                                refNodes.add(ref);
+                            }
+                        }
                     }
                 }
-                SearchHits newHits = fetchNodesById(refNodes);
-                createNodes(newHits, nodesFetched, data, null);
+                if(!refNodes.isEmpty()) {
+                    SearchHits newHits = fetchNodesById(refNodes);
+                    createNodes(newHits, data, null);
+                }
+
             }
 
 
@@ -158,52 +190,52 @@ public class ContextService {
         return edge;
     }
 
-    private void fetchRelationsForEachNode(Set<String> nodesFetched, Set<String> allFetchedNodes, Set<String> relationshipsFetched, ContextData data) {
+    private void fetchRelationsForEachNode(Set<String> nodesFetched, ContextData data) {
         String[] indexesToSearch = new String[1];
         indexesToSearch[0] = "relationship";
         SearchHits sourceRelationships = esIndex.termQuery("source_ref", nodesFetched, indexesToSearch, null, "relationship");
         SearchHits targetRelationships = esIndex.termQuery("target_ref", nodesFetched, indexesToSearch, null, "relationship");
         Set<String> nodesToFetch = new HashSet<>();
-        allFetchedNodes.addAll(nodesFetched);
-        createEdges(sourceRelationships, relationshipsFetched, data, RelationshipFetchedFor.SOURCE, allFetchedNodes, nodesToFetch);
-        createEdges(targetRelationships, relationshipsFetched, data, RelationshipFetchedFor.TARGET, allFetchedNodes, nodesToFetch);
+//        allFetchedNodes.addAll(nodesFetched);
+        createEdges(sourceRelationships, data, RelationshipFetchedFor.SOURCE, nodesToFetch);
+        createEdges(targetRelationships, data, RelationshipFetchedFor.TARGET, nodesToFetch);
         if(!nodesToFetch.isEmpty()) {
-            Set<String> newNodesFetched = new HashSet<>();
             SearchHits hits = fetchNodesById(nodesToFetch);
-            if(newNodesFetched != null) {
-                createNodes(hits, newNodesFetched, data, null);
+            if(hits.getTotalHits() > 0) {
+                createNodes(hits, data, null);
 
             }
-            fetchRelationsForEachNode(newNodesFetched, allFetchedNodes, relationshipsFetched, data);
+
+            fetchRelationsForEachNode(nodesToFetch, data);
         }
 
     }
 
-    private void createEdges(SearchHits relationships, Set<String> relationshipsFetched, ContextData data, RelationshipFetchedFor fetchedFor, Set<String> nodesFetched, Set<String> nodesToFetch) {
+    private void createEdges(SearchHits relationships, ContextData data, RelationshipFetchedFor fetchedFor, Set<String> nodesToFetch) {
         for(SearchHit relationship: relationships) {
             Map rsource = relationship.getSource();
             String rtype = (String)rsource.get("relationship_type");
             String sourceNode = (String)rsource.get("source_ref");
             String targetNode = (String)rsource.get("target_ref");
             String rid = (String)rsource.get("id");
-            if(!relationshipsFetched.contains(rid)) {
+            if(!data.isEdgePresent(rid)) {
                 Edge edge = new Edge();
                 edge.setId(rid);
                 edge.setSource(sourceNode);
                 edge.setTarget(targetNode);
                 edge.setInternalType(rtype);
                 data.addEdge(edge);
-                relationshipsFetched.add(rid);
+//                relationshipsFetched.add(rid);
             }
 
 
             if(fetchedFor.equals(RelationshipFetchedFor.SOURCE)) {
                 //Get the list of Target Nodes that havent yet been fetched
-                if(!nodesFetched.contains(targetNode)){
+                if(!data.isNodePresent(targetNode)){
                     nodesToFetch.add(targetNode);
                 }
             }else {
-                if(!nodesFetched.contains(sourceNode)) {
+                if(!data.isNodePresent(sourceNode)) {
                     nodesToFetch.add(sourceNode);
                 }
             }

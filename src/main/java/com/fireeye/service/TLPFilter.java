@@ -44,7 +44,7 @@ public class TLPFilter implements Filter<ContextData, String> {
                 List<String> markingIds = (List<String>)data.get("object_marking_refs");
                 if(markingIds != null && !markingIds.isEmpty()) {
                     List<String> fieldsToReturn = new ArrayList<>();
-                    fieldsToReturn.add("definition.tlp");
+//                    fieldsToReturn.add("definition.tlp");
                     Set<String> markingIdSet = new HashSet<>(markingIds);
                     try {
                         String[] indexNames = new String[1];
@@ -59,6 +59,28 @@ public class TLPFilter implements Filter<ContextData, String> {
                                     nodeIdsToRemove.add(node.getId());
                                     continue;
 //                                contextData.getNodes().remove(node);
+                                } else {
+                                    String markingDefId = (String) hit.getSource().get("id");
+                                    String definitionType = (String) hit.getSource().get("definition_type");
+                                    //Add a marking definition node and an edge from the node to the marking definition
+                                    if(!contextData.isNodePresent(markingDefId)) {
+                                        Node markingDefNode = new Node();
+                                        markingDefNode.setId(markingDefId);
+                                        markingDefNode.setType(tlp != null ? tlp : definitionType);
+                                        markingDefNode.setLabel(tlp != null ? tlp : definitionType);
+                                        markingDefNode.setData(hit.getSource());
+                                        contextData.addNode(markingDefNode);
+                                        //Add Edge
+                                        Edge markingDefEdge = new Edge();
+                                        markingDefEdge.setId("auto-generated".concat(UUID.randomUUID().toString()));
+                                        markingDefEdge.setSource(node.getId());
+                                        markingDefEdge.setTarget(markingDefId);
+                                        Map<String, Object> edgeData = new HashMap<>();
+                                        edgeData.put("tlp", tlp);
+                                        markingDefNode.setData(edgeData);
+                                        contextData.addEdge(markingDefEdge);
+                                    }
+
                                 }
                             }
 
@@ -120,6 +142,27 @@ public class TLPFilter implements Filter<ContextData, String> {
                             }
 //                    node.getData().remove()
 
+                        } else {
+                            String markingDefId = (String) hit.getSource().get("id");
+                            String definitionType = (String) hit.getSource().get("definition_type");
+                            //Add a marking definition node and an edge from the node to the marking definition
+                            if(!contextData.isNodePresent(markingDefId)) {
+                                Node markingDefNode = new Node();
+                                markingDefNode.setId(markingDefId);
+                                markingDefNode.setType(tlp != null ? tlp : definitionType);
+                                markingDefNode.setLabel(tlp != null ? tlp : definitionType);
+                                markingDefNode.setData(hit.getSource());
+                                contextData.addNode(markingDefNode);
+                                //Add Edge
+                                Edge markingDefEdge = new Edge();
+                                markingDefEdge.setId("auto-generated".concat(UUID.randomUUID().toString()));
+                                markingDefEdge.setSource(node.getId());
+                                markingDefEdge.setTarget(markingDefId);
+                                Map<String, Object> edgeData = new HashMap<>();
+                                edgeData.put("tlp", tlp);
+                                markingDefNode.setData(edgeData);
+                                contextData.addEdge(markingDefEdge);
+                            }
                         }
 
                     }
@@ -160,6 +203,8 @@ public class TLPFilter implements Filter<ContextData, String> {
 
 
     }
+
+
 
     private Integer value(String tlp) {
         if(tlp == null) {

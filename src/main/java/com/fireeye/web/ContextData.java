@@ -12,29 +12,47 @@ public class ContextData {
 
     private Set<Edge> edges = new HashSet<>();
 
+    private Set<String> nodesAdded = new HashSet<>();
+
+    private Set<String> edgesAdded = new HashSet<>();
+
     public Set<Node> getNodes() {
         return nodes;
     }
 
-    public void setNodes(Set<Node> nodes) {
-        this.nodes = nodes;
-    }
-
-    public boolean addNode(Node node) {
-        nodes.add(node);
-        return true;
+    public void addNode(Node node) {
+        if(! nodesAdded.contains(node.getId())) {
+            nodes.add(node);
+            nodesAdded.add(node.getId());
+        }
     }
 
     public Set<Edge> getEdges() {
         return edges;
     }
 
-    public Boolean addEdge(Edge edge) {
-        this.edges.add(edge);
-        return true;
+    public void addEdge(Edge edge) {
+        if(!edgesAdded.contains(edge.getId())) {
+            this.edges.add(edge);
+            edgesAdded.add(edge.getId());
+        }
+
     }
 
-    public void setEdges(Set<Edge> edges) {
-        this.edges = edges;
+    public Set<String> nodesAlreadyFetched() {
+        return nodesAdded;
     }
+
+    public Set<String> edgesAlreadyFetched() {
+        return edgesAdded;
+    }
+
+    public Boolean isNodePresent(String nodeId) {
+        return nodesAdded.contains(nodeId);
+    }
+
+    public Boolean isEdgePresent(String edgeId) {
+        return edgesAdded.contains(edgeId);
+    }
+
 }
