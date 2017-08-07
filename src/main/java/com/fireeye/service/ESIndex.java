@@ -1,7 +1,9 @@
 package com.fireeye.service;
 
+import org.apache.commons.lang.exception.ExceptionUtils;
 import org.elasticsearch.action.admin.indices.exists.indices.IndicesExistsRequest;
 import org.elasticsearch.action.admin.indices.exists.indices.IndicesExistsResponse;
+import org.elasticsearch.action.delete.DeleteResponse;
 import org.elasticsearch.action.get.GetResponse;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.search.SearchRequestBuilder;
@@ -13,9 +15,11 @@ import org.elasticsearch.client.transport.TransportClient;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.transport.InetSocketTransportAddress;
 import org.elasticsearch.common.xcontent.XContentType;
+import org.elasticsearch.index.engine.DocumentMissingException;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.index.query.QueryStringQueryBuilder;
+import org.elasticsearch.script.Script;
 import org.elasticsearch.search.SearchHits;
 import org.elasticsearch.transport.client.PreBuiltTransportClient;
 
@@ -53,6 +57,8 @@ public class ESIndex {
      * The parameter representing the number of replicas key
      */
     static final String NUM_OF_REPLICAS_PARAM = "number_of_replicas";
+
+    private final String DELETE_SCRIPT = "ctx._source.remove('<fieldToRemove>')";
 
     public ESIndex(ESSettings esSettings) {
         this.indexName = esSettings.getIndexName();
@@ -105,6 +111,35 @@ public class ESIndex {
 
     }
 
+    public String removeProperty(String index, String documentType, String id, String fieldToRemove) {
+        String result = null;
+        String deleteScript = DELETE_SCRIPT.replaceAll("<fieldToRemove>", fieldToRemove);
+
+        UpdateRequest updateRequest = new UpdateRequest(index, documentType, id)
+                .script(new Script(deleteScript));
+
+        try {
+            UpdateResponse response = client.update(updateRequest).get();
+            result = response.getId();
+        }catch(Exception e) {
+            if( ExceptionUtils.getRootCause(e) instanceof DocumentMissingException) {
+                e.printStackTrace();
+//                LOGGER.debug("Trying to delete values from a missing document. Ignoring deletion of entity: ", entity);
+            } else {
+                throw new RuntimeException("Unable to delete entity.", e);
+            }
+        }
+        return result;
+    }
+
+    public SearchHits queryByFields(String qs, String field) {
+        SearchResponse response = client.prepareSearch("nvd", indexName)
+                .setQuery(QueryBuilders.queryStringQuery(qs).field(field))
+                .setFetchSource(true)
+                .setFrom(0).setSize(100)
+                .get();
+        return response.getHits();
+    }
     public SearchHits query(String qs) {
         SearchResponse response = client.prepareSearch("nvd", indexName)
                 .setQuery(QueryBuilders.queryStringQuery(qs))
@@ -165,6 +200,11 @@ public class ESIndex {
     public GetResponse getById(String type, String id) {
         return client.prepareGet("*", type, id).get();
 
+    }
+
+    public String deleteDocument(String index, String documentType, String id) {
+        DeleteResponse deleteResponse = client.prepareDelete(index, documentType, id).get();
+        return deleteResponse.status().name();
     }
 
     public Boolean documentExists(String type, String id) {

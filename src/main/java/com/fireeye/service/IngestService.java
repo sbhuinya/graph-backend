@@ -1,14 +1,27 @@
 package com.fireeye.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
+import org.elasticsearch.common.xcontent.XContentBuilder;
+import org.mitre.stix.common_1.ControlledVocabularyStringType;
+import org.mitre.stix.common_1.IndicatorBaseType;
+import org.mitre.stix.common_1.StructuredTextType;
+import org.mitre.stix.indicator_2.Indicator;
+import org.mitre.stix.indicator_2.SightingsType;
+import org.mitre.stix.stix_1.STIXPackage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import javax.xml.datatype.XMLGregorianCalendar;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.*;
+
+import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
 
 /**
  * Created by LT-Mac-Akumar on 13/07/2017.
@@ -57,8 +70,89 @@ public class IngestService {
         return cpeIndexed;
     }
 
-//    public List<String> ingestStix1(String xml) throws Exception {
-//        STIXPackage stixPackage = STIXPackage.fromXMLString(xml);
+    private List<String> handleIntent(STIXPackage stixPackage, List<ControlledVocabularyStringType> intents, List<String> jsonDataToStore) {
+        List<String> responseRefs = new ArrayList<>();
+        for (ControlledVocabularyStringType intent : intents) {
+            if("indicators".equalsIgnoreCase(intent.getValue().toString())) {
+                responseRefs.addAll(handleIndicators(stixPackage, jsonDataToStore));
+            }
+        }
+        return null;
+    }
+
+    private List<String> handleIndicators(STIXPackage stixPackage, List<String> jsonDataToStore) {
+        List<IndicatorBaseType> indicators = stixPackage.getIndicators().getIndicators();
+        List<String> indicatorIds = new ArrayList<>();
+        for(IndicatorBaseType indicator : indicators) {
+            indicatorIds.add(handleIndicator((Indicator)indicator, jsonDataToStore));
+        }
+        return null;
+    }
+
+    private String handleIndicator(Indicator indicator, List<String> jsonDataToStore) {
+        Map<String, Object> indicatorResponse = new HashMap<>();
+        String id = indicator.getId().getLocalPart();
+        XMLGregorianCalendar timestamp = indicator.getTimestamp();
+        indicatorResponse.put("id", id);
+        indicatorResponse.put("type", "indicator");
+        indicatorResponse.put("timestamp", timestamp);
+        indicatorResponse.put("created", LocalDateTime.now(Clock.systemUTC()));
+        indicatorResponse.put("modified", LocalDateTime.now(Clock.systemUTC()));
+
+        List<ControlledVocabularyStringType> indtypes = ((Indicator) indicator).getTypes();
+        List<String> listOfIndTypes = new ArrayList<>();
+        for(ControlledVocabularyStringType indType: indtypes) {
+            listOfIndTypes.add(indType.getValue().toString());
+        }
+        indicatorResponse.put("labels", listOfIndTypes.toArray());
+
+        String indDescription = "";
+        for(StructuredTextType desc : ((Indicator) indicator).getDescriptions()) {
+            indDescription = indDescription.concat(desc.getValue()).concat(" ");
+        }
+        indicatorResponse.put("description", indDescription);
+
+        org.mitre.cybox.cybox_2.Observable observable = ((Indicator) indicator).getObservable();
+        handleObservable(observable, jsonDataToStore);
+        SightingsType sightingsType = ((Indicator) indicator).getSightings();
+        handleSightings(sightingsType, jsonDataToStore);
+
+        return id;
+
+    }
+
+    private void handleSightings(SightingsType sightingsType, List<String> jsonDataToString) {
+
+    }
+
+    private void handleObservable(org.mitre.cybox.cybox_2.Observable observable , List<String> jsonDataToStore) {
+        String obsId = observable.getId().getLocalPart();
+        ObjectMapper mapper= new ObjectMapper();
+        try {
+            String result = mapper.writeValueAsString(observable);
+            System.out.println(result);
+        } catch (JsonProcessingException e) {
+            e.printStackTrace();
+        }
+//        observable.get
+    }
+    public List<String> ingestStix1(String xml) throws Exception {
+        List<String> objectRefs = new ArrayList<>();
+        STIXPackage stixPackage = STIXPackage.fromXMLString(xml);
+        List<String> jsonDataToStore = new ArrayList<>();
+        Map<String, Object> bundleProperties = new HashMap<>();
+        bundleProperties.put("id", stixPackage.getId().toString());
+        bundleProperties.put("timestamp", stixPackage.getTimestamp().toString());
+        String title = stixPackage.getSTIXHeader().getTitle();
+        bundleProperties.put("title", title);
+        bundleProperties.put("label", title);
+
+        List<ControlledVocabularyStringType> intents = stixPackage.getSTIXHeader().getPackageIntents();
+        if(intents != null && !intents.isEmpty()) {
+            objectRefs.addAll(handleIntent(stixPackage, intents, jsonDataToStore));
+        }
+
+
 //        if(stixPackage.getIndicators() != null && stixPackage.getIndicators().getIndicators() != null) {
 //            List<IndicatorBaseType> indicators = stixPackage
 //                    .getIndicators().getIndicators();
@@ -70,16 +164,16 @@ public class IngestService {
 //            }
 //            for(IndicatorBaseType indicator: indicators) {
 //                ObjectMapper jsonMapper = new ObjectMapper();
-//                jsonMapper.
+////                jsonMapper.
 //                String json = jsonMapper.writeValueAsString(indicator);
 //                System.out.println(json);
 //                indicator = (Indicator)indicator;
 ////                indicator.get
 //            }
 //        }
-//    return null;
-//
-//    }
+    return null;
+
+    }
     private void replaceEmptyWithDefaultKeys(Map<String, Object> item) {
         Map<String, Object> valuesToReplace = new HashMap();
         for(String key: item.keySet()) {
@@ -187,6 +281,10 @@ public class IngestService {
     public List<String> ingestStix(String jsonData) throws Exception{
 
         LinkedHashMap<String, Object> stixBundle = (LinkedHashMap<String, Object>)mapper.readValue(jsonData, Object.class);
+        String bundleId = (String)stixBundle.get("id");
+        XContentBuilder builder = jsonBuilder().startObject()
+                .field("id", bundleId)
+                .field("type", stixBundle.get("type") != null ? stixBundle.get("type") : "bundle");
         List objects = (List)stixBundle.get("objects");
         List<String> documentsAdded = new ArrayList<>();
         for(Object object : objects) {
@@ -202,6 +300,8 @@ public class IngestService {
             }
 
         }
+        builder = builder.array("object_refs", documentsAdded.toArray()).endObject();
+        documentsAdded.add(esIndex.upsertDocument("intel", "report", bundleId, builder.string().getBytes()));
         return documentsAdded;
 
 

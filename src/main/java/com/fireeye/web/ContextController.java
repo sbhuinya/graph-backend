@@ -18,7 +18,7 @@ import java.util.Map;
  * Created by LT-Mac-Akumar on 07/07/2017.
  */
 @RestController
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:3001"})
+@CrossOrigin()
 public class ContextController {
 
     private ObjectMapper objectMapper = new ObjectMapper();
@@ -42,6 +42,12 @@ public class ContextController {
 
     }
 
+    /**
+     * Get the report by Id
+     * @param id
+     * @param tlp
+     * @return
+     */
     @RequestMapping(value = "/report/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     public ContextData getReport(@PathVariable("id") String id, @RequestParam(value = "tlp", defaultValue = "white")String tlp) {
         ContextData data =  service.getReportData(id);
@@ -51,16 +57,30 @@ public class ContextController {
         return data;
     }
 
+    /**
+     * Get the list of indicators only
+     * @param indicatorType
+     * @return
+     */
     @RequestMapping(value = "/indicators", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<Integer,Map<String, Object>> getIndicators(@RequestParam(value = "ind-type")String indicatorType) {
         return service.getIndicators(indicatorType);
 
     }
 
+    /**
+     * Ingest Stix data
+     * @param json
+     * @return
+     * @throws Exception
+     */
     @RequestMapping(value = "/ingest/stix", method = RequestMethod.POST, consumes = MediaType.APPLICATION_JSON_VALUE)
     public List<String> ingestStix(@RequestBody String json) throws Exception{
         return ingestService.ingestStix(json);
     }
+
+
+
 
     @RequestMapping(value = "/ingest/cve", method = RequestMethod.POST, consumes = MediaType.APPLICATION_JSON_VALUE)
     public List<String> ingestCVE(@RequestBody String json) throws Exception{
@@ -77,22 +97,35 @@ public class ContextController {
 //        return ingestService.ingestStix1(xml);
 //    }
 
+    /**
+     * update relationship data for the given relationship.
+     * @param jsonBody
+     * @return
+     * @throws IOException
+     */
     @RequestMapping(value = "/relationship/data", method = RequestMethod.PUT, consumes = MediaType.APPLICATION_JSON_VALUE)
-    public HttpStatus addRelationshipData(@RequestBody String jsonBody) throws IOException{
-        Map values = objectMapper.readValue(jsonBody, Map.class);
-        if((values.containsKey("id")))
-            return HttpStatus.OK;
-        else
-            return HttpStatus.BAD_REQUEST;
+    public HttpStatus addUpdateRelationshipData(@RequestBody String jsonBody) throws Exception{
+        HttpStatus status = HttpStatus.OK;
+        try {
+            service.updateDocument(jsonBody);
+
+        } catch (Exception e) {
+            status = HttpStatus.BAD_REQUEST;
+        }
+        return status;
+
     }
 
-    @RequestMapping(value = "/node", method = RequestMethod.PUT, consumes = MediaType.APPLICATION_JSON_VALUE)
-    public HttpStatus deleteNode(@RequestBody String jsonBody) throws IOException {
-        Map values = objectMapper.readValue(jsonBody, Map.class);
-        if((values.containsKey("id")))
-            return HttpStatus.OK;
-        else
-            return HttpStatus.BAD_REQUEST;
+    @RequestMapping(value = "/node/data", method = RequestMethod.PUT, consumes = MediaType.APPLICATION_JSON_VALUE)
+    public HttpStatus addUpdateNodeProperty(@RequestBody String jsonBody) {
+        HttpStatus status = HttpStatus.OK;
+        try {
+            service.updateDocument(jsonBody);
+
+        } catch (Exception e) {
+            status = HttpStatus.BAD_REQUEST;
+        }
+        return status;
 
     }
 

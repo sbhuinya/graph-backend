@@ -1,16 +1,18 @@
 package com.fireeye.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fireeye.web.ContextData;
 import com.fireeye.web.Edge;
 import com.fireeye.web.Node;
-import org.elasticsearch.action.get.GetResponse;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchHits;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.*;
+
+import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
 
 /**
  * Created by LT-Mac-Akumar on 07/07/2017.
@@ -18,18 +20,36 @@ import java.util.*;
 @Component
 public class ContextService {
 
-
+    private ObjectMapper objectMapper = new ObjectMapper();
 
     private ESIndex esIndex;
 
     private static Map<String,String> indicatorTypeMapping;
 
+    private static Map<String, String> documentTypeToIndexMapping;
+
     private static final String ALL = "all";
 
+    //TODO: Move to central Config
     static {
         indicatorTypeMapping = new HashMap<>();
         indicatorTypeMapping.put("ip", "ipv4-addr:value");
         indicatorTypeMapping.put("domain", "domain-name:value");
+    }
+
+    //TODO: Move to Central Config
+    static {
+        documentTypeToIndexMapping = new HashMap<>();
+        documentTypeToIndexMapping.put("relationship", "relationship");
+        documentTypeToIndexMapping.put("cpe", "nvd");
+        documentTypeToIndexMapping.put("cve", "nvd");
+        documentTypeToIndexMapping.put("course-of-action", "intel");
+        documentTypeToIndexMapping.put("indicator", "intel");
+        documentTypeToIndexMapping.put("malware", "intel");
+        documentTypeToIndexMapping.put("identity", "intel");
+        documentTypeToIndexMapping.put("marking-definition", "intel");
+        documentTypeToIndexMapping.put("campaign", "intel");
+        documentTypeToIndexMapping.put("statement", "intel");
     }
 
     public void setEsIndex(ESIndex esIndex) {
@@ -54,48 +74,17 @@ public class ContextService {
     }
 
     public ContextData getReportData(String reportId) {
-        GetResponse response = esIndex.getById("intel", "report", reportId);
-        ContextData data = new ContextData();
-        Set<String> nodesFetched = new HashSet<>();
-        Set<String> relationshipsFetched = new HashSet<>();
 
-        if(response.isExists()) {
-            Map<String, Object> source =  response.getSource();
-            List<String> references = (List<String>)source.get("object_refs");
-            Node reportNode = new Node();
-            reportNode.setId(response.getId());
-            reportNode.setType(response.getType());
-            reportNode.setLabel(response.getId());
-            for(String ref: references) {
-                if(!ref.startsWith("relationship--")) {
-                    GetResponse refResponse = esIndex.getById("intel", null, ref);
-                    String type = refResponse.getType();
-                    if(!type.equals("relationship")) {
-                        Node node = new Node();
-                        node.setId(refResponse.getId());
-                        node.setLabel(refResponse.getId());
-                        node.setType(refResponse.getType());
-                        node.setData(refResponse.getSource());
-                        nodesFetched.add(refResponse.getId());
-                        data.addNode(node);
-                    }
-                }
-
-            }
-            source.remove("object_refs");
-            reportNode.setData(source);
-            data.addNode(reportNode);
-            fetchRelationsForEachNode(data.nodesAlreadyFetched(), data);
-        }
-        return data;
+        SearchHits hits = esIndex.queryByFields(reportId, "id");
+        Node rootNode = createRootNode(reportId);
+        ContextData result =  prepareData(hits, rootNode);
+        rootNode.getData().put("Total Nodes", result.getNodes().size());
+        rootNode.getData().put("Total Edges", result.getEdges().size());
+        result.addNode(rootNode);
+        return result;
     }
 
-    public ContextData getData(String searchString){
-
-        ContextData result = new ContextData();
-        SearchHits hits = esIndex.query(searchString);
-//        Set<String> nodesFetched = new HashSet<>();
-//        Set<String> relationshipsFetched = new HashSet<>();
+    private Node createRootNode(String searchString) {
         Node rootNode = new Node();
         rootNode.setId(searchString);
         rootNode.setLabel(searchString);
@@ -103,12 +92,30 @@ public class ContextService {
         HashMap<String, Object> rootData = new HashMap<>();
         rootData.put("search_string", searchString);
         rootNode.setData(rootData);
+        return rootNode;
+    }
+
+
+    public ContextData getData(String searchString) {
+//        ContextData result = new ContextData();
+        SearchHits hits = esIndex.query(searchString);
+        Node rootNode = createRootNode(searchString);
+        ContextData result =  prepareData(hits, rootNode);
+        rootNode.getData().put("Total Nodes", result.getNodes().size());
+        rootNode.getData().put("Total Edges", result.getEdges().size());
+        result.addNode(rootNode);
+        return result;
+
+    }
+
+    public ContextData prepareData(SearchHits hits, Node rootNode){
+
+        ContextData result = new ContextData();
+
 
         createNodes(hits, result, rootNode);
         fetchRelationsForEachNode(result.nodesAlreadyFetched(), result);
-        rootData.put("Total Nodes", result.getNodes().size());
-        rootData.put("Total Edges", result.getEdges().size());
-        result.addNode(rootNode);
+
         return result;
     }
 
@@ -118,6 +125,7 @@ public class ContextService {
         for(SearchHit hit: hits) {
             Map<String, Object> sourceFields = hit.getSource();
             String documentType = (String) hit.getSourceAsMap().get("type");
+            documentType = documentType != null ? documentType : hit.getType();
             if(documentType.equals("marking-definition")) {
                 documentType = (String) hit.getSourceAsMap().get("definition_type");
                 String tlp = (String)((HashMap)hit.getSource().get("definition")).get("tlp");
@@ -224,6 +232,7 @@ public class ContextService {
                 edge.setSource(sourceNode);
                 edge.setTarget(targetNode);
                 edge.setInternalType(rtype);
+                edge.setData(relationship.getSource());
                 data.addEdge(edge);
 //                relationshipsFetched.add(rid);
             }
@@ -257,22 +266,34 @@ public class ContextService {
     }
 
 
+    public String updateDocument(String jsonData) throws Exception{
 
-    public static void main(String[] args) {
-        ObjectMapper objectMapper = new ObjectMapper();
+        String idUpdated = null;
+        Map values = objectMapper.readValue(jsonData, Map.class);
+        if((values.containsKey("id"))) {
+            String id = (String)values.get("id");
+            String documentType = (String)values.get("type");
+            String keyName = (String)values.get("key_name");
+            String keyValue = (String)values.get("key_value");
+            String action = (String)values.get("action");
+            if("delete".equals(action)) {
+                esIndex.removeProperty(documentTypeToIndexMapping.get(documentType), documentType, id, keyName);
+            } else {
+                String jsonToUpdate = jsonBuilder()
+                        .startObject()
+                        .field(keyName, keyValue)
+                        .field("modified", LocalDateTime.now(Clock.systemUTC()))
+                        .endObject().string();
+                idUpdated = esIndex.upsertDocument(documentTypeToIndexMapping.get(documentType), documentType, id, jsonToUpdate.getBytes());
+            }
 
-        ContextService service = new ContextService();
-        ESSettings esSettings = new ESSettings();
-        esSettings = esSettings.builder().clusterName("elasticsearch")
-                .hostAndPort("localhost", 9300)
-                .indexName("intel").build();
-        ESIndex index = new ESIndex(esSettings);
-        service.setEsIndex(index);
-        ContextData data = service.getData("apt");
-        try {
-            System.out.println(objectMapper.writeValueAsString(data));
-        } catch (JsonProcessingException e) {
-            e.printStackTrace();
         }
+
+        return idUpdated;
     }
+
+    public String deleteDocument(String documentId, String documentType) {
+        return esIndex.deleteDocument(documentTypeToIndexMapping.get(documentType), documentType, documentId);
+    }
+
 }
