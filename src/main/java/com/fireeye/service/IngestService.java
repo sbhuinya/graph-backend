@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import javax.xml.datatype.XMLGregorianCalendar;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -70,7 +71,7 @@ public class IngestService {
         return cpeIndexed;
     }
 
-    private List<String> handleIntent(STIXPackage stixPackage, List<ControlledVocabularyStringType> intents, List<String> jsonDataToStore) {
+    private List<String> handleIntent(STIXPackage stixPackage, List<ControlledVocabularyStringType> intents, List<String> jsonDataToStore) throws Exception{
         List<String> responseRefs = new ArrayList<>();
         for (ControlledVocabularyStringType intent : intents) {
             if("indicators".equalsIgnoreCase(intent.getValue().toString())) {
@@ -80,7 +81,7 @@ public class IngestService {
         return null;
     }
 
-    private List<String> handleIndicators(STIXPackage stixPackage, List<String> jsonDataToStore) {
+    private List<String> handleIndicators(STIXPackage stixPackage, List<String> jsonDataToStore) throws Exception{
         List<IndicatorBaseType> indicators = stixPackage.getIndicators().getIndicators();
         List<String> indicatorIds = new ArrayList<>();
         for(IndicatorBaseType indicator : indicators) {
@@ -89,7 +90,7 @@ public class IngestService {
         return null;
     }
 
-    private String handleIndicator(Indicator indicator, List<String> jsonDataToStore) {
+    private String handleIndicator(Indicator indicator, List<String> jsonDataToStore) throws Exception{
         Map<String, Object> indicatorResponse = new HashMap<>();
         String id = indicator.getId().getLocalPart();
         XMLGregorianCalendar timestamp = indicator.getTimestamp();
@@ -125,16 +126,51 @@ public class IngestService {
 
     }
 
-    private void handleObservable(org.mitre.cybox.cybox_2.Observable observable , List<String> jsonDataToStore) {
+    private void handleObservable(org.mitre.cybox.cybox_2.Observable observable , List<String> jsonDataToStore) throws Exception {
+
         String obsId = observable.getId().getLocalPart();
+        String documentType = "observed-data";
+        LocalDateTime created = LocalDateTime.now(Clock.systemUTC());
+        LocalDateTime modified =  LocalDateTime.now(Clock.systemUTC());
+        XContentBuilder observableBuilder = jsonBuilder().startObject()
+                .field("id", obsId)
+                .field("type", documentType)
+                .field("created", created)
+                .field("modified", modified);
+
         ObjectMapper mapper= new ObjectMapper();
         try {
+            Map values = mapper.readValue(mapper.writeValueAsBytes(observable), Map.class);
+            if(values != null) {
+                values.values().removeIf(Objects::isNull);
+            }
+
+            if(values.get("object") != null) {
+                Map objectMap = (Map)values.get("object");
+                objectMap.values().removeIf(Objects::isNull);
+                String objectId = (String)objectMap.get("id");
+                Map properties = (Map)objectMap.get("properties");
+                if(properties != null) {
+                    properties.values().removeIf(Objects::isNull);
+                }
+                Map relatedObjects = (Map)objectMap.get("relatedObjects");
+                if(relatedObjects != null) {
+                    relatedObjects.values().removeIf(Objects::isNull);
+                }
+                Map<Integer, Object> objects = new HashMap<>();
+//                objects.put(0, )
+//                observableBuilder.field("objects", )
+
+            }
+
             String result = mapper.writeValueAsString(observable);
             System.out.println(result);
         } catch (JsonProcessingException e) {
             e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
         }
-//        observable.get
+        observable.getObject().getProperties();
     }
     public List<String> ingestStix1(String xml) throws Exception {
         List<String> objectRefs = new ArrayList<>();

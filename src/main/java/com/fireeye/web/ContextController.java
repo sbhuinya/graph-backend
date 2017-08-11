@@ -106,25 +106,15 @@ public class ContextController {
     @RequestMapping(value = "/relationship/data", method = RequestMethod.PUT, consumes = MediaType.APPLICATION_JSON_VALUE)
     public HttpStatus addUpdateRelationshipData(@RequestBody String jsonBody) throws Exception{
         HttpStatus status = HttpStatus.OK;
-        try {
-            service.updateDocument(jsonBody);
-
-        } catch (Exception e) {
-            status = HttpStatus.BAD_REQUEST;
-        }
+        service.updateDocument(jsonBody);
         return status;
 
     }
 
     @RequestMapping(value = "/node/data", method = RequestMethod.PUT, consumes = MediaType.APPLICATION_JSON_VALUE)
-    public HttpStatus addUpdateNodeProperty(@RequestBody String jsonBody) {
+    public HttpStatus addUpdateNodeProperty(@RequestBody String jsonBody) throws Exception{
         HttpStatus status = HttpStatus.OK;
-        try {
-            service.updateDocument(jsonBody);
-
-        } catch (Exception e) {
-            status = HttpStatus.BAD_REQUEST;
-        }
+        service.updateDocument(jsonBody);
         return status;
 
     }

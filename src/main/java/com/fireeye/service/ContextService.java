@@ -20,6 +20,29 @@ import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
 @Component
 public class ContextService {
 
+    public static final String TOTAL_NODES = "Total Nodes";
+    public static final String TOTAL_EDGES = "Total Edges";
+    public static final String DOCUMENT_TYPE = "type";
+    public static final String DEFINITION_TYPE = "definition_type";
+    public static final String DEFINITION = "definition";
+    public static final String TLP = "tlp";
+    public static final String DASH = "-";
+    public static final String ID = "id";
+    public static final String LABEL = "label";
+    public static final String REF = "ref";
+    public static final String REF_DASH = "ref--";
+    public static final String RELATIONSHIP_DASH = "relationship--";
+    public static final String FOUND_IN = "FOUND_IN";
+    public static final String SOURCE_REF = "source_ref";
+    public static final String TARGET_REF = "target_ref";
+    public static final String RELATIONSHIP_TYPE = "relationship_type";
+    public static final String NVD_INDEX = "nvd";
+    public static final String KEY_NAME = "key_name";
+    public static final String KEY_VALUE = "key_value";
+    public static final String ACTION = "action";
+    public static final String DELETE_ACTION = "delete";
+    public static final String MODIFIED = "modified";
+    public static final String REFS = "refs";
     private ObjectMapper objectMapper = new ObjectMapper();
 
     private ESIndex esIndex;
@@ -28,28 +51,41 @@ public class ContextService {
 
     private static Map<String, String> documentTypeToIndexMapping;
 
-    private static final String ALL = "all";
+    public static final String IP = "ip";
 
-    //TODO: Move to central Config
-    static {
-        indicatorTypeMapping = new HashMap<>();
-        indicatorTypeMapping.put("ip", "ipv4-addr:value");
-        indicatorTypeMapping.put("domain", "domain-name:value");
-    }
+    public static final String IPV4_ADDR_VALUE = "ipv4-addr:value";
+
+    public static final String DOMAIN = "domain";
+
+    public static final String DOMAIN_NAME_VALUE = "domain-name:value";
+
+    public static final String MARKING_DEFINITION = "marking-definition";
+
+    public static final String RELATIONSHIP = "relationship";
+
+    public static final String INTEL_INDEX = "intel";
 
     //TODO: Move to Central Config
     static {
         documentTypeToIndexMapping = new HashMap<>();
-        documentTypeToIndexMapping.put("relationship", "relationship");
+        documentTypeToIndexMapping.put(RELATIONSHIP, RELATIONSHIP);
         documentTypeToIndexMapping.put("cpe", "nvd");
         documentTypeToIndexMapping.put("cve", "nvd");
-        documentTypeToIndexMapping.put("course-of-action", "intel");
-        documentTypeToIndexMapping.put("indicator", "intel");
-        documentTypeToIndexMapping.put("malware", "intel");
-        documentTypeToIndexMapping.put("identity", "intel");
-        documentTypeToIndexMapping.put("marking-definition", "intel");
-        documentTypeToIndexMapping.put("campaign", "intel");
-        documentTypeToIndexMapping.put("statement", "intel");
+        documentTypeToIndexMapping.put("course-of-action", INTEL_INDEX);
+        documentTypeToIndexMapping.put("indicator", INTEL_INDEX);
+        documentTypeToIndexMapping.put("malware", INTEL_INDEX);
+        documentTypeToIndexMapping.put("identity", INTEL_INDEX);
+        documentTypeToIndexMapping.put(MARKING_DEFINITION, INTEL_INDEX);
+        documentTypeToIndexMapping.put("campaign", INTEL_INDEX);
+        documentTypeToIndexMapping.put("statement", INTEL_INDEX);
+//        documentTypeToIndexMapping.put("threat-actor", INTEL_INDEX);
+    }
+
+    //TODO: Move to central Config
+    static {
+        indicatorTypeMapping = new HashMap<>();
+        indicatorTypeMapping.put(IP, IPV4_ADDR_VALUE);
+        indicatorTypeMapping.put(DOMAIN, DOMAIN_NAME_VALUE);
     }
 
     public void setEsIndex(ESIndex esIndex) {
@@ -74,12 +110,11 @@ public class ContextService {
     }
 
     public ContextData getReportData(String reportId) {
-
-        SearchHits hits = esIndex.queryByFields(reportId, "id");
+        SearchHits hits = esIndex.queryByFields(reportId, ID);
         Node rootNode = createRootNode(reportId);
         ContextData result =  prepareData(hits, rootNode);
-        rootNode.getData().put("Total Nodes", result.getNodes().size());
-        rootNode.getData().put("Total Edges", result.getEdges().size());
+        rootNode.getData().put(TOTAL_NODES, result.getNodes().size());
+        rootNode.getData().put(TOTAL_EDGES, result.getEdges().size());
         result.addNode(rootNode);
         return result;
     }
@@ -97,80 +132,71 @@ public class ContextService {
 
 
     public ContextData getData(String searchString) {
-//        ContextData result = new ContextData();
         SearchHits hits = esIndex.query(searchString);
         Node rootNode = createRootNode(searchString);
         ContextData result =  prepareData(hits, rootNode);
-        rootNode.getData().put("Total Nodes", result.getNodes().size());
-        rootNode.getData().put("Total Edges", result.getEdges().size());
+        rootNode.getData().put(TOTAL_NODES, result.getNodes().size());
+        rootNode.getData().put(TOTAL_EDGES, result.getEdges().size());
         result.addNode(rootNode);
         return result;
 
     }
 
     public ContextData prepareData(SearchHits hits, Node rootNode){
-
         ContextData result = new ContextData();
-
-
         createNodes(hits, result, rootNode);
         fetchRelationsForEachNode(result.nodesAlreadyFetched(), result);
-
         return result;
     }
 
     private void createNodes(SearchHits hits, ContextData data, Node rootNode) {
         Set<String> refNodes = new HashSet<>();
-
         for(SearchHit hit: hits) {
             Map<String, Object> sourceFields = hit.getSource();
-            String documentType = (String) hit.getSourceAsMap().get("type");
+            String documentType = (String) hit.getSourceAsMap().get(DOCUMENT_TYPE);
             documentType = documentType != null ? documentType : hit.getType();
-            if(documentType.equals("marking-definition")) {
-                documentType = (String) hit.getSourceAsMap().get("definition_type");
-                String tlp = (String)((HashMap)hit.getSource().get("definition")).get("tlp");
+            if(documentType.equals(MARKING_DEFINITION)) {
+                documentType = (String) hit.getSourceAsMap().get(DEFINITION_TYPE);
+                String tlp = (String)((HashMap)hit.getSource().get(DEFINITION)).get(TLP);
                 if(tlp != null) {
-                    documentType = documentType.concat("-").concat(tlp);
+                    documentType = documentType.concat(DASH).concat(tlp);
                 }
-
             }
-            String id = (String) hit.getSourceAsMap().get("id");
+            String id = (String) hit.getSourceAsMap().get(ID);
             if(!data.isNodePresent(id)) {
-                //TODO: Change it to take label from label field if present
-                String label =  hit.getSourceAsMap().get("label") != null?  (String) hit.getSourceAsMap().get("label"): id;
+                String label =  hit.getSourceAsMap().get(LABEL) != null?  (String) hit.getSourceAsMap().get(LABEL): id;
                 Node node = new Node();
                 node.setId(id);
                 node.setData(sourceFields);
                 node.setType(documentType);
                 node.setLabel(label);
-//                nodesFetched.add(id);
                 data.addNode(node);
                 if(rootNode != null) {
                     data.addEdge(createRootRelationship(rootNode, node));
                 }
                 for(String key: sourceFields.keySet()) {
-                    if(key.endsWith("ref")) {
+                    if(key.endsWith(REF)) {
                         String keyId = (String)sourceFields.get(key);
                         if(!data.isNodePresent(keyId)) {
                             //Create a relationship edge first
                             Edge edge = new Edge();
-                            edge.setId("ref--".concat(UUID.randomUUID().toString()));
+                            edge.setId(REF_DASH.concat(UUID.randomUUID().toString()));
                             edge.setSource(id);
                             edge.setTarget(keyId);
-                            edge.setInternalType("Reference");
+                            edge.setInternalType(key.substring(0, key.indexOf("_ref")));
                             data.addEdge(edge);
                             refNodes.add((String)sourceFields.get(key));
                         }
 
-                    } else if(key.endsWith("refs")) {
+                    } else if(key.endsWith(REFS)) {
                         List<String> references = (List)sourceFields.get(key);
                         for(String ref: references) {
                             if(!data.isNodePresent(ref)) {
                                 Edge edge = new Edge();
-                                edge.setId("ref--".concat(UUID.randomUUID().toString()));
+                                edge.setId(REF_DASH.concat(UUID.randomUUID().toString()));
                                 edge.setSource(id);
                                 edge.setTarget(ref);
-                                edge.setInternalType("Reference");
+                                edge.setInternalType(key.substring(0, key.indexOf("_refs")));
                                 data.addEdge(edge);
                                 refNodes.add(ref);
                             }
@@ -191,18 +217,18 @@ public class ContextService {
 
     private Edge createRootRelationship(Node sourceNode, Node targetNode) {
         Edge edge = new Edge();
-        edge.setId("relationship--".concat(UUID.randomUUID().toString()));
+        edge.setId(RELATIONSHIP_DASH.concat(UUID.randomUUID().toString()));
         edge.setSource(sourceNode.getId());
         edge.setTarget(targetNode.getId());
-        edge.setInternalType("FOUND_IN");
+        edge.setInternalType(FOUND_IN);
         return edge;
     }
 
     private void fetchRelationsForEachNode(Set<String> nodesFetched, ContextData data) {
         String[] indexesToSearch = new String[1];
-        indexesToSearch[0] = "relationship";
-        SearchHits sourceRelationships = esIndex.termQuery("source_ref", nodesFetched, indexesToSearch, null, "relationship");
-        SearchHits targetRelationships = esIndex.termQuery("target_ref", nodesFetched, indexesToSearch, null, "relationship");
+        indexesToSearch[0] = RELATIONSHIP;
+        SearchHits sourceRelationships = esIndex.termQuery(SOURCE_REF, nodesFetched, indexesToSearch, null, RELATIONSHIP);
+        SearchHits targetRelationships = esIndex.termQuery(TARGET_REF, nodesFetched, indexesToSearch, null, RELATIONSHIP);
         Set<String> nodesToFetch = new HashSet<>();
 //        allFetchedNodes.addAll(nodesFetched);
         createEdges(sourceRelationships, data, RelationshipFetchedFor.SOURCE, nodesToFetch);
@@ -222,10 +248,10 @@ public class ContextService {
     private void createEdges(SearchHits relationships, ContextData data, RelationshipFetchedFor fetchedFor, Set<String> nodesToFetch) {
         for(SearchHit relationship: relationships) {
             Map rsource = relationship.getSource();
-            String rtype = (String)rsource.get("relationship_type");
-            String sourceNode = (String)rsource.get("source_ref");
-            String targetNode = (String)rsource.get("target_ref");
-            String rid = (String)rsource.get("id");
+            String rtype = (String)rsource.get(RELATIONSHIP_TYPE);
+            String sourceNode = (String)rsource.get(SOURCE_REF);
+            String targetNode = (String)rsource.get(TARGET_REF);
+            String rid = (String)rsource.get(ID);
             if(!data.isEdgePresent(rid)) {
                 Edge edge = new Edge();
                 edge.setId(rid);
@@ -253,9 +279,9 @@ public class ContextService {
 
     private SearchHits fetchNodesById(Set<String> nodesToFetch) {
         String[] indexNames = new String[2];
-        indexNames[0] = "intel";
-        indexNames[1] = "nvd";
-        return esIndex.termQuery("id", nodesToFetch, indexNames, null);
+        indexNames[0] = INTEL_INDEX;
+        indexNames[1] = NVD_INDEX;
+        return esIndex.termQuery(ID, nodesToFetch, indexNames, null);
     }
 
 
@@ -270,19 +296,19 @@ public class ContextService {
 
         String idUpdated = null;
         Map values = objectMapper.readValue(jsonData, Map.class);
-        if((values.containsKey("id"))) {
-            String id = (String)values.get("id");
-            String documentType = (String)values.get("type");
-            String keyName = (String)values.get("key_name");
-            String keyValue = (String)values.get("key_value");
-            String action = (String)values.get("action");
-            if("delete".equals(action)) {
+        if((values.containsKey(ID))) {
+            String id = (String)values.get(ID);
+            String documentType = (String)values.get(DOCUMENT_TYPE);
+            String keyName = (String)values.get(KEY_NAME);
+            String keyValue = (String)values.get(KEY_VALUE);
+            String action = (String)values.get(ACTION);
+            if(DELETE_ACTION.equals(action)) {
                 esIndex.removeProperty(documentTypeToIndexMapping.get(documentType), documentType, id, keyName);
             } else {
                 String jsonToUpdate = jsonBuilder()
                         .startObject()
                         .field(keyName, keyValue)
-                        .field("modified", LocalDateTime.now(Clock.systemUTC()))
+                        .field(MODIFIED, LocalDateTime.now(Clock.systemUTC()))
                         .endObject().string();
                 idUpdated = esIndex.upsertDocument(documentTypeToIndexMapping.get(documentType), documentType, id, jsonToUpdate.getBytes());
             }

@@ -48,6 +48,10 @@ public class ContextData {
     }
 
     public Boolean isNodePresent(String nodeId) {
+//        if(nodesAdded.size() > 20) {
+//            return true;
+//        }
+//        return nodesAdded.contains(nodeId);
         return nodesAdded.contains(nodeId);
     }
 

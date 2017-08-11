@@ -31,6 +31,8 @@ public class TLPFilter implements Filter<ContextData, String> {
 
         List<Node> nodesToRemove = new ArrayList<>();
         List<String> nodeIdsToRemove = new ArrayList<>();
+        List<Node> nodesToAdd = new ArrayList<>();
+        List<Edge> edgesToAdd = new ArrayList<>();
 
         try {
 
@@ -69,7 +71,8 @@ public class TLPFilter implements Filter<ContextData, String> {
                                         markingDefNode.setType(tlp != null ? tlp : definitionType);
                                         markingDefNode.setLabel(tlp != null ? tlp : definitionType);
                                         markingDefNode.setData(hit.getSource());
-                                        contextData.addNode(markingDefNode);
+                                        nodesToAdd.add(markingDefNode);
+//                                        contextData.addNode(markingDefNode);
                                         //Add Edge
                                         Edge markingDefEdge = new Edge();
                                         markingDefEdge.setId("auto-generated".concat(UUID.randomUUID().toString()));
@@ -77,8 +80,9 @@ public class TLPFilter implements Filter<ContextData, String> {
                                         markingDefEdge.setTarget(markingDefId);
                                         Map<String, Object> edgeData = new HashMap<>();
                                         edgeData.put("tlp", tlp);
-                                        markingDefNode.setData(edgeData);
-                                        contextData.addEdge(markingDefEdge);
+                                        markingDefEdge.setData(edgeData);
+                                        edgesToAdd.add(markingDefEdge);
+//                                        contextData.addEdge(markingDefEdge);
                                     }
 
                                 }
@@ -107,7 +111,7 @@ public class TLPFilter implements Filter<ContextData, String> {
                     fieldsToReturn.add("definition.tlp");
                     String[] indexNames = new String[1];
                     indexNames[0] = "intel";
-                    SearchHits hits = esIndex.termQuery("id", markingIdSet, indexNames, fieldsToReturn.toArray(new String[0]), "marking-definition");
+                    SearchHits hits = esIndex.termQuery("id", markingIdSet, indexNames, null, "marking-definition");
                     for(SearchHit hit: hits) {
                         String markingId = hit.getId();
 
@@ -137,7 +141,12 @@ public class TLPFilter implements Filter<ContextData, String> {
 //                            values.remove(getIndex)
                                 } else {
                                     //we should remove the entire field.
-                                    node.getData().remove(field);
+                                    //TODO: Probably will throw concurrent modification exception
+                                    Map nodeData = node.getData();
+                                    synchronized (nodeData) {
+                                        nodeData.remove(field);
+                                    }
+//                                    node.getData().remove(field);
                                 }
                             }
 //                    node.getData().remove()
@@ -152,16 +161,19 @@ public class TLPFilter implements Filter<ContextData, String> {
                                 markingDefNode.setType(tlp != null ? tlp : definitionType);
                                 markingDefNode.setLabel(tlp != null ? tlp : definitionType);
                                 markingDefNode.setData(hit.getSource());
-                                contextData.addNode(markingDefNode);
+                                nodesToAdd.add(markingDefNode);
+//                                contextData.addNode(markingDefNode);
                                 //Add Edge
                                 Edge markingDefEdge = new Edge();
                                 markingDefEdge.setId("auto-generated".concat(UUID.randomUUID().toString()));
                                 markingDefEdge.setSource(node.getId());
                                 markingDefEdge.setTarget(markingDefId);
+                                markingDefEdge.setInternalType("granular-marking-def");
                                 Map<String, Object> edgeData = new HashMap<>();
-                                edgeData.put("tlp", tlp);
-                                markingDefNode.setData(edgeData);
-                                contextData.addEdge(markingDefEdge);
+                                edgeData.put("tlp", "tlp-".concat(tlp));
+                                markingDefEdge.setData(edgeData);
+                                edgesToAdd.add(markingDefEdge);
+//                                contextData.addEdge(markingDefEdge);
                             }
                         }
 
@@ -171,15 +183,22 @@ public class TLPFilter implements Filter<ContextData, String> {
 //            System.out.println(granularMarkings);
 
 
+                //TODO: Revisit to improve the code
                 for(String key: fieldToNewValuesMap.keySet()) {
-                    node.getData().put(key, fieldToNewValuesMap.get(key));
+                    Map<String, Object> nodeData = node.getData();
+                    synchronized (nodeData) {
+                        nodeData.put(key, fieldToNewValuesMap.get(key));
+                        nodeData.remove("granular_markings");
+                        nodeData.remove("object_marking_refs");
+                    }
+//                    node.getData().put();
                 }
-                if(node.getData().containsKey("granular_markings")) {
-                    node.getData().remove("granular_markings");
-                }
-                if(node.getData().containsKey("object_marking_refs")) {
-                    node.getData().remove("object_marking_refs");
-                }
+//                if(node.getData().containsKey("granular_markings")) {
+//                    node.getData().remove("granular_markings");
+//                }
+//                if(node.getData().containsKey("object_marking_refs")) {
+//                    node.getData().remove("object_marking_refs");
+//                }
 
 
             }
@@ -195,6 +214,8 @@ public class TLPFilter implements Filter<ContextData, String> {
                 }
             }
             contextData.getEdges().removeAll(listOfEdgesToRemove);
+            contextData.getNodes().addAll(nodesToAdd);
+            contextData.getEdges().addAll(edgesToAdd);
 
         }catch(Exception e) {
             System.out.println(e);
